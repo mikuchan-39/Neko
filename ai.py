@@ -1,140 +1,108 @@
-import numpy as np
 import random
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
-# ボードサイズ
-BOARD_SIZE = 6
+BLACK = 1
+WHITE = 2
+CORNERS = [(0, 0), (0, 5), (5, 0), (5, 5)]  # 6x6ボード用の四隅（8x8なら変更）
 
-# ボード評価表
-EVALUATION_BOARD = [
-    [100, -20, 10, 10, -20, 100],
-    [-20, -50, -2, -2, -50, -20],
-    [10, -2,  1,  1,  -2,  10],
-    [10, -2,  1,  1,  -2,  10],
-    [-20, -50, -2, -2, -50, -20],
-    [100, -20, 10, 10, -20, 100],
-]
-
-# 初期ボード
-def create_initial_board():
-    board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=int)
-    mid = BOARD_SIZE // 2
-    board[mid - 1, mid - 1] = 1
-    board[mid, mid] = 1
-    board[mid - 1, mid] = -1
-    board[mid, mid - 1] = -1
-    return board
-
-# ボード表示
-def draw_board(board):
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_aspect('equal')
-
-    # 背景を緑に設定
-    ax.set_facecolor('green')
-
-    # マス目の描画
-    for x in range(BOARD_SIZE):
-        for y in range(BOARD_SIZE):
-            piece = board[x, y]
-            if piece == 1:  # 白
-                circle = patches.Circle((y + 0.5, BOARD_SIZE - x - 0.5), 0.4, color='white')
-                ax.add_patch(circle)
-            elif piece == -1:  # 黒
-                circle = patches.Circle((y + 0.5, BOARD_SIZE - x - 0.5), 0.4, color='black')
-                ax.add_patch(circle)
-
-    ax.set_xlim(0, BOARD_SIZE)
-    ax.set_ylim(0, BOARD_SIZE)
-    ax.axis('off')  # 縦横の線を非表示
-    plt.show()
-
-# 有効な手かどうかを判定
-def is_valid_move(board, x, y, player):
-    if board[x, y] != 0:
-        return False
+def can_place_x_y(board, stone, x, y):
+    """
+    石を置けるかどうかを調べる関数。
+    """
+    if board[y][x] != 0:
+        return False  # 既に石がある場合は置けない
+    opponent = 3 - stone  # 相手の石 (1なら2、2なら1)
     directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
     for dx, dy in directions:
         nx, ny = x + dx, y + dy
-        has_opponent_piece = False
-        while 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE:
-            if board[nx, ny] == -player:
-                has_opponent_piece = True
-            elif board[nx, ny] == player:
-                if has_opponent_piece:
-                    return True
-                break
-            else:
-                break
+        found_opponent = False
+        while 0 <= nx < len(board[0]) and 0 <= ny < len(board) and board[ny][nx] == opponent:
             nx += dx
             ny += dy
+            found_opponent = True
+        if found_opponent and 0 <= nx < len(board[0]) and 0 <= ny < len(board) and board[ny][nx] == stone:
+            return True  # 石を置ける条件を満たす
     return False
 
-# 合法手を探す
-def get_legal_moves(board, player):
+def valid_moves(board, stone):
+    """
+    石を置けるすべての座標をリストで返す。
+    """
     moves = []
-    for x in range(BOARD_SIZE):
-        for y in range(BOARD_SIZE):
-            if is_valid_move(board, x, y, player):
+    for y in range(len(board)):
+        for x in range(len(board[0])):
+            if can_place_x_y(board, stone, x, y):
                 moves.append((x, y))
     return moves
 
-# 1手を打つ関数
-def make_move(board, move, player):
-    x, y = move
-    board[x, y] = player
+def score_move(board, x, y, stone):
+    """
+    特定の手を評価する関数（ひっくり返す石の数だけでなく、エッジや安定性を考慮）。
+    """
+    score = 0
+    opponent = 3 - stone
     directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+    
     for dx, dy in directions:
         nx, ny = x + dx, y + dy
-        pieces_to_flip = []
-        while 0 <= nx < BOARD_SIZE and 0 <= ny < BOARD_SIZE:
-            if board[nx, ny] == -player:
-                pieces_to_flip.append((nx, ny))
-            elif board[nx, ny] == player:
-                for px, py in pieces_to_flip:
-                    board[px, py] = player
-                break
-            else:
-                break
+        flipped = 0
+        while 0 <= nx < len(board[0]) and 0 <= ny < len(board) and board[ny][nx] == opponent:
             nx += dx
             ny += dy
-    return board
-
-# ゲーム終了判定
-def is_game_over(board):
-    return not get_legal_moves(board, 1) and not get_legal_moves(board, -1)
-
-# 勝者判定
-def determine_winner(board):
-    score = np.sum(board)
-    if score > 0:
-        return "Player 1 (White)"
-    elif score < 0:
-        return "Player 2 (Black)"
-    else:
-        return "Draw"
-
-# ボードの評価関数
-def evaluate_board(board):
-    score = 0
-    for i in range(BOARD_SIZE):
-        for j in range(BOARD_SIZE):
-            score += board[i, j] * EVALUATION_BOARD[i][j]
+            flipped += 1
+        if flipped > 0 and 0 <= nx < len(board[0]) and 0 <= ny < len(board) and board[ny][nx] == stone:
+            score += flipped
     return score
 
-# ミニマックスアルゴリズム
-def minimax(board, depth, alpha, beta, maximizing_player, player):
-    if depth == 0 or is_game_over(board):
-        return evaluate_board(board)
+def evaluate_board(board, stone):
+    """
+    ボード全体を評価する関数。
+    評価要素：
+        - 自分の石の数、相手の石の数
+        - コーナー、エッジ、安定した石の数
+    """
+    opponent = 3 - stone
+    score = 0
     
-    legal_moves = get_legal_moves(board, player)
+    # コーナーの評価
+    for corner in CORNERS:
+        x, y = corner
+        if board[y][x] == stone:
+            score += 10  # コーナーは非常に強い
+        elif board[y][x] == opponent:
+            score -= 10
+    
+    # エッジの評価（コーナーの隣の石も重要）
+    edges = [
+        (0, 1), (0, 4), (1, 0), (1, 5),
+        (4, 0), (4, 5), (5, 1), (5, 4)
+    ]
+    for x, y in edges:
+        if board[y][x] == stone:
+            score += 5
+        elif board[y][x] == opponent:
+            score -= 5
+
+    # 石の安定性（盤面端や中央の石は安定しやすい）
+    for y in range(len(board)):
+        for x in range(len(board[0])):
+            if board[y][x] == stone:
+                score += 1  # 自分の石が多いと有利
+            elif board[y][x] == opponent:
+                score -= 1  # 相手の石が多いと不利
+
+    return score
+
+def minimax(board, depth, maximizing_player, stone, alpha, beta):
+    if depth == 0 or not valid_moves(board, stone):
+        return evaluate_board(board, stone)
+    
     if maximizing_player:
         max_eval = float('-inf')
-        for move in legal_moves:
-            new_board = board.copy()
-            make_move(new_board, move, player)
-            eval = minimax(new_board, depth - 1, alpha, beta, False, -player)
+        for move in valid_moves(board, stone):
+            x, y = move
+            new_board = [row[:] for row in board]
+            new_board[y][x] = stone
+            eval = minimax(new_board, depth - 1, False, 3 - stone, alpha, beta)
             max_eval = max(max_eval, eval)
             alpha = max(alpha, eval)
             if beta <= alpha:
@@ -142,67 +110,36 @@ def minimax(board, depth, alpha, beta, maximizing_player, player):
         return max_eval
     else:
         min_eval = float('inf')
-        for move in legal_moves:
-            new_board = board.copy()
-            make_move(new_board, move, player)
-            eval = minimax(new_board, depth - 1, alpha, beta, True, -player)
+        for move in valid_moves(board, stone):
+            x, y = move
+            new_board = [row[:] for row in board]
+            new_board[y][x] = stone
+            eval = minimax(new_board, depth - 1, True, 3 - stone, alpha, beta)
             min_eval = min(min_eval, eval)
             beta = min(beta, eval)
             if beta <= alpha:
                 break
         return min_eval
 
-# AIの最善手選択
-def choose_best_move(board, player):
-    best_move = None
-    best_value = float('-inf')
-    for move in get_legal_moves(board, player):
-        new_board = board.copy()
-        make_move(new_board, move, player)
-        move_value = minimax(new_board, depth=3, alpha=float('-inf'), beta=float('inf'), maximizing_player=False, player=-player)
-        if move_value > best_value:
-            best_value = move_value
-            best_move = move
-    return best_move
+def opponent(stone):
+    return 3 - stone
 
-# ゲームプレイ
-def play_game():
-    board = create_initial_board()
-    current_player = 1
-    while not is_game_over(board):
-        draw_board(board)
-        if current_player == 1:  # AIのターン
-            move = choose_best_move(board, current_player)
-        else:  # 相手のターン（ランダムに動く例）
-            moves = get_legal_moves(board, current_player)
-            move = random.choice(moves) if moves else None
-        if move:
-            make_move(board, move, current_player)
-        current_player = -current_player
-    draw_board(board)
-    print("Game Over!")
-    print("Winner:", determine_winner(board))
-
-# ボード表示
-def draw_board(board):
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_aspect('equal')
-
-    # 背景を緑に設定
-    ax.add_patch(patches.Rectangle((0, 0), BOARD_SIZE, BOARD_SIZE, color='green'))
-
-    # マス目の描画
-    for x in range(BOARD_SIZE):
-        for y in range(BOARD_SIZE):
-            piece = board[x, y]
-            if piece == 1:  # 白
-                circle = patches.Circle((y + 0.5, BOARD_SIZE - x - 0.5), 0.4, color='white')
-                ax.add_patch(circle)
-            elif piece == -1:  # 黒
-                circle = patches.Circle((y + 0.5, BOARD_SIZE - x - 0.5), 0.4, color='black')
-                ax.add_patch(circle)
-
-    ax.set_xlim(0, BOARD_SIZE)
-    ax.set_ylim(0, BOARD_SIZE)
-    ax.axis('off')  # 縦横の線を非表示
-    plt.show()
+class NekoAI(object):
+    def face(self):
+        return "🦾"  # 強いAIを示すアイコン
+    
+    def place(self, board, stone):
+        best_move = None
+        best_value = float('-inf')
+        
+        # ミニマックスを使って最適な手を決定
+        for move in valid_moves(board, stone):
+            x, y = move
+            new_board = [row[:] for row in board]
+            new_board[y][x] = stone
+            move_value = minimax(new_board, 3, False, stone, float('-inf'), float('inf'))  # 深さ3で探索
+            if move_value > best_value:
+                best_value = move_value
+                best_move = move
+                
+        return best_move
